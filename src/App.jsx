@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, push, onValue, update } from "firebase/database";
+import { getDatabase, ref, push, onValue, update, set } from "firebase/database";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAU12jYMQtirSKIaltLF678yvm3dqLqo_8",
@@ -35,15 +35,23 @@ const S = {
 
 const formatTime = () => new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) + " LT";
 
+const getRouteFromURL = () => {
+  const path = window.location.pathname;
+  const parts = path.split("/").filter(Boolean);
+  if (parts[0] === "driver" && parts[1]) return { mode: "driver", jobRef: parts[1] };
+  if (parts[0] === "broker" && parts[1]) return { mode: "broker", jobRef: parts[1] };
+  return { mode: "home", jobRef: null };
+};
+
 function DriverView({ jobRef }) {
   const [sentIds, setSentIds] = useState(new Set());
   const [note, setNote] = useState("");
   const [eta, setEta] = useState("");
   const [lastSent, setLastSent] = useState(null);
   const [jobData, setJobData] = useState(null);
-  const dbRef = ref(db, `jobs/${jobRef}`);
 
   useEffect(() => {
+    const dbRef = ref(db, `jobs/${jobRef}`);
     const unsub = onValue(dbRef, snap => {
       const data = snap.val();
       if (data) {
@@ -82,18 +90,20 @@ function DriverView({ jobRef }) {
           <span style={{ fontSize: 11, color: S.success, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em" }}>Live Mission</span>
         </div>
         <div style={{ fontSize: 22, fontWeight: 800 }}>🚗 Driver Panel</div>
-        <div style={{ fontSize: 13, color: S.light, marginTop: 2 }}>{jobRef} · <span style={{ color: S.accent }}>{jobData?.route || "..."}</span></div>
+        <div style={{ fontSize: 13, color: S.light, marginTop: 2 }}>
+          Ref: <span style={{ color: S.accent }}>{jobRef}</span> · {jobData?.route || "..."}
+        </div>
       </div>
       <div style={{ padding: "20px 16px", maxWidth: 480, margin: "0 auto" }}>
         <div style={{ background: S.card, border: `1px solid ${S.border}`, borderRadius: 16, padding: "16px 18px", marginBottom: 16 }}>
-          <div style={{ fontSize: 11, color: S.gray, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>ETA</div>
+          <div style={{ fontSize: 11, color: S.gray, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>ETA (Local Time)</div>
           <input type="time" value={eta} onChange={e => saveETA(e.target.value)} style={{ background: "rgba(255,255,255,0.06)", border: `1px solid ${S.accent}44`, borderRadius: 10, padding: "10px 14px", color: S.white, fontSize: 20, fontWeight: 700, outline: "none", width: "100%", boxSizing: "border-box" }} />
         </div>
         <div style={{ background: S.card, border: `1px solid ${S.border}`, borderRadius: 16, padding: "14px 18px", marginBottom: 16 }}>
-          <div style={{ fontSize: 11, color: S.gray, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Notă extra</div>
-          <input placeholder="ex: delay traffic..." value={note} onChange={e => setNote(e.target.value)} style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${S.border}`, borderRadius: 10, padding: "9px 12px", color: S.white, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" }} />
+          <div style={{ fontSize: 11, color: S.gray, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Notă extra (opțional)</div>
+          <input placeholder="ex: delay traffic, 2 boxes only..." value={note} onChange={e => setNote(e.target.value)} style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${S.border}`, borderRadius: 10, padding: "9px 12px", color: S.white, fontSize: 13, outline: "none", width: "100%", boxSizing: "border-box" }} />
         </div>
-        <div style={{ fontSize: 11, color: S.gray, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>Status</div>
+        <div style={{ fontSize: 11, color: S.gray, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>Trimite update status</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {STATUSES.map(s => {
             const done = sentIds.has(s.id);
@@ -119,7 +129,9 @@ function BrokerView({ jobRef }) {
   const [jobData, setJobData] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
   const [allCopied, setAllCopied] = useState(false);
+  const [driverLinkCopied, setDriverLinkCopied] = useState(false);
   const prevCountRef = useRef(0);
+  const driverLink = `https://www.jil-logistics.com/driver/${jobRef}`;
 
   useEffect(() => {
     const dbRef = ref(db, `jobs/${jobRef}`);
@@ -142,21 +154,23 @@ function BrokerView({ jobRef }) {
     const eta = jobData?.eta ? `\n\n⏱ ETA: ${jobData.eta} LT` : "";
     return `*${jobRef} — ${jobData?.route || ""}*\n\n${lines}${eta}`;
   };
-
   const markFwd = async (key) => await update(ref(db, `jobs/${jobRef}/updates/${key}`), { forwarded: true });
-
   const copyOne = async (u) => {
     await navigator.clipboard.writeText(buildLine(u));
     await markFwd(u.key);
     setCopiedId(u.key);
     setTimeout(() => setCopiedId(null), 2000);
   };
-
   const copyAll = async () => {
     await navigator.clipboard.writeText(buildFull());
     for (const u of updates) await markFwd(u.key);
     setAllCopied(true);
     setTimeout(() => setAllCopied(false), 2500);
+  };
+  const copyDriverLink = async () => {
+    await navigator.clipboard.writeText(driverLink);
+    setDriverLinkCopied(true);
+    setTimeout(() => setDriverLinkCopied(false), 2500);
   };
 
   return (
@@ -167,15 +181,23 @@ function BrokerView({ jobRef }) {
         {jobData?.eta && <div style={{ marginTop: 8, display: "inline-block", padding: "4px 12px", borderRadius: 20, fontSize: 11, fontWeight: 700, color: S.gold, background: S.gold + "20" }}>⏱ ETA {jobData.eta} LT</div>}
       </div>
       <div style={{ padding: "20px 16px", maxWidth: 480, margin: "0 auto" }}>
+        <div style={{ background: "rgba(29,185,84,0.08)", border: `1px solid ${S.success}33`, borderRadius: 16, padding: "14px 18px", marginBottom: 20 }}>
+          <div style={{ fontSize: 11, color: S.success, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8, fontWeight: 700 }}>🔗 Link pentru șofer</div>
+          <div style={{ fontSize: 12, color: S.light, marginBottom: 10, wordBreak: "break-all" }}>{driverLink}</div>
+          <button onClick={copyDriverLink} style={{ width: "100%", padding: "10px", borderRadius: 10, border: `1px solid ${S.success}44`, background: driverLinkCopied ? S.success : "rgba(29,185,84,0.15)", color: driverLinkCopied ? "#fff" : S.success, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+            {driverLinkCopied ? "✅ Copiat! Trimite pe WhatsApp →" : "📋 Copiază link șofer"}
+          </button>
+          <div style={{ fontSize: 11, color: S.gray, marginTop: 8 }}>⚠️ Șoferul vede doar ruta și butoanele</div>
+        </div>
         {updates.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "60px 20px", color: S.gray }}>
+          <div style={{ textAlign: "center", padding: "40px 20px", color: S.gray }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>📡</div>
-            <div style={{ fontSize: 16, color: S.light }}>Aștepți update-uri...</div>
+            <div style={{ fontSize: 16, color: S.light }}>Aștepți update-uri de la driver...</div>
           </div>
         ) : (
           <>
             <button onClick={copyAll} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: allCopied ? S.success : `linear-gradient(135deg,${S.blue},${S.accent})`, color: "#fff", fontWeight: 800, fontSize: 14, cursor: "pointer", marginBottom: 16 }}>
-              {allCopied ? "✅ Copiat! Paste în WhatsApp →" : `📋 Copiază tot (${updates.length} update-uri)`}
+              {allCopied ? "✅ Copiat! Paste în WhatsApp →" : `📋 Copiază tot (${updates.length})`}
             </button>
             <div style={{ background: "#0A1E10", border: `1px solid ${S.success}33`, borderRadius: 14, padding: "14px 16px", marginBottom: 20 }}>
               <pre style={{ margin: 0, fontSize: 12, color: S.light, lineHeight: 1.9, fontFamily: "inherit", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{buildFull()}</pre>
@@ -191,7 +213,7 @@ function BrokerView({ jobRef }) {
                     </div>
                     <div style={{ fontSize: 13, color: S.light }}>{u.message}</div>
                   </div>
-                  <button onClick={() => copyOne(u)} style={{ background: "rgba(255,255,255,0.05)", border: `1px solid ${S.border}`, borderRadius: 9, padding: "6px 12px", color: S.gray, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                  <button onClick={() => copyOne(u)} style={{ background: "rgba(255,255,255,0.05)", border: `1px solid ${S.border}`, borderRadius: 9, padding: "6px 12px", color: copiedId === u.key ? S.success : S.gray, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
                     {copiedId === u.key ? "✓" : "Copy"}
                   </button>
                 </div>
@@ -204,50 +226,104 @@ function BrokerView({ jobRef }) {
   );
 }
 
-function SetupView({ onCreate }) {
+function HomeView() {
+  const [jobs, setJobs] = useState([]);
+  const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ ref: "", route: "", broker: "" });
+  const [created, setCreated] = useState(null);
 
-  const create = async () => {
+  useEffect(() => {
+    const dbRef = ref(db, "jobs");
+    const unsub = onValue(dbRef, snap => {
+      const data = snap.val();
+      if (data) {
+        const list = Object.entries(data).map(([k, v]) => ({ id: k, ...v })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        setJobs(list);
+      }
+    });
+    return unsub;
+  }, []);
+
+  const createJob = async () => {
     if (!form.ref || !form.route) return;
-    const jobRef = ref(db, `jobs/${form.ref}`);
-    await update(jobRef, { ...form, createdAt: Date.now(), updates: {} });
-    onCreate(form.ref);
+    await set(ref(db, `jobs/${form.ref}`), {
+      ref: form.ref, route: form.route, broker: form.broker,
+      createdAt: Date.now(), updates: {},
+    });
+    setCreated(form.ref);
+    setForm({ ref: "", route: "", broker: "" });
+    setShowNew(false);
   };
 
+  const inp = (label, key, placeholder) => (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 11, color: S.gray, textTransform: "uppercase", marginBottom: 6 }}>{label}</div>
+      <input placeholder={placeholder} value={form[key]} onChange={e => setForm({ ...form, [key]: e.target.value })} style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: `1px solid rgba(77,170,255,0.2)`, borderRadius: 10, padding: "11px 14px", color: S.white, fontSize: 14, outline: "none", boxSizing: "border-box" }} />
+    </div>
+  );
+
   return (
-    <div style={{ minHeight: "100vh", background: S.bg, color: S.white, fontFamily: "sans-serif", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-      <div style={{ width: "100%", maxWidth: 420 }}>
-        <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <div style={{ fontSize: 40, marginBottom: 12 }}>✈️</div>
-          <div style={{ fontSize: 24, fontWeight: 800 }}>JIL Live Tracking</div>
+    <div style={{ minHeight: "100vh", background: S.bg, color: S.white, fontFamily: "sans-serif", paddingBottom: 80 }}>
+      <div style={{ background: "linear-gradient(180deg,#0A1628 0%,#060E1C 100%)", borderBottom: `1px solid rgba(58,168,255,0.2)`, padding: "20px 20px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 34, height: 34, borderRadius: 9, background: `linear-gradient(135deg, #1A5FD4, #3FA8FF)`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 13 }}>JIL</div>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 16 }}>JIL Live Tracking</div>
+            <div style={{ fontSize: 11, color: S.gray }}>OBC Aviation Logistics</div>
+          </div>
         </div>
-        <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(77,170,255,0.18)", borderRadius: 20, padding: 24 }}>
-          {["ref", "route", "broker"].map(key => (
-            <div key={key} style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 11, color: S.gray, textTransform: "uppercase", marginBottom: 6 }}>{key}</div>
-              <input placeholder={key === "ref" ? "ex: GRT24042026" : key === "route" ? "ex: BBU → Bacău" : "ex: Modus Operations"} value={form[key]} onChange={e => setForm({ ...form, [key]: e.target.value })} style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: `1px solid rgba(77,170,255,0.2)`, borderRadius: 10, padding: "11px 14px", color: S.white, fontSize: 14, outline: "none", boxSizing: "border-box" }} />
+      </div>
+      <div style={{ padding: "20px 16px", maxWidth: 480, margin: "0 auto" }}>
+        {created && (
+          <div style={{ background: "rgba(29,185,84,0.1)", border: `1px solid ${S.success}44`, borderRadius: 16, padding: "16px 18px", marginBottom: 20 }}>
+            <div style={{ fontWeight: 700, color: S.success, marginBottom: 8 }}>✅ Job creat!</div>
+            <div style={{ fontSize: 12, color: S.light, marginBottom: 6 }}><strong>Tu (broker):</strong> <span style={{ color: S.accent }}>jil-logistics.com/broker/{created}</span></div>
+            <div style={{ fontSize: 12, color: S.light, marginBottom: 12 }}><strong>Șofer:</strong> <span style={{ color: S.success }}>jil-logistics.com/driver/{created}</span></div>
+            <button onClick={() => navigator.clipboard.writeText(`https://www.jil-logistics.com/driver/${created}`)} style={{ width: "100%", padding: 10, borderRadius: 10, border: "none", background: S.success, color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+              📋 Copiază link șofer
+            </button>
+          </div>
+        )}
+        <button onClick={() => setShowNew(true)} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: `linear-gradient(135deg, ${S.blue}, ${S.accent})`, color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer", marginBottom: 24 }}>➕ Job nou</button>
+        {showNew && (
+          <div style={{ background: "rgba(255,255,255,0.04)", border: `1px solid rgba(77,170,255,0.18)`, borderRadius: 20, padding: 20, marginBottom: 20 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 16 }}>Job nou</div>
+            {inp("Referință / Nume job", "ref", "ex: GRT25042026 sau orice")}
+            {inp("Rută", "route", "ex: BBU → Bacău")}
+            {inp("Broker (nu se vede de șofer)", "broker", "ex: Modus Operations")}
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setShowNew(false)} style={{ flex: 1, padding: 12, borderRadius: 12, border: `1px solid ${S.border}`, background: "transparent", color: S.gray, fontWeight: 700, cursor: "pointer" }}>Anulează</button>
+              <button onClick={createJob} style={{ flex: 2, padding: 12, borderRadius: 12, border: "none", background: `linear-gradient(135deg, ${S.blue}, ${S.accent})`, color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Creează →</button>
             </div>
-          ))}
-          <button onClick={create} style={{ width: "100%", padding: 14, borderRadius: 12, border: "none", background: `linear-gradient(135deg,${S.blue},${S.accent})`, color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>Creează Job →</button>
-        </div>
+          </div>
+        )}
+        <div style={{ fontSize: 11, color: S.gray, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>Job-uri active</div>
+        {jobs.length === 0 && <div style={{ color: S.gray, fontSize: 13, textAlign: "center", padding: 20 }}>Niciun job — creează primul!</div>}
+        {jobs.map(job => (
+          <div key={job.id} style={{ background: S.card, border: `1px solid ${S.borderBlue}`, borderRadius: 14, padding: "14px 16px", marginBottom: 10 }}>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>{job.ref}</div>
+            <div style={{ fontSize: 12, color: S.gray, marginBottom: 10 }}>✈️ {job.route}</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => window.location.href = `/broker/${job.ref}`} style={{ flex: 1, padding: "8px", borderRadius: 9, border: `1px solid ${S.blue}44`, background: S.blue + "22", color: S.accent, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>🧑‍💼 Broker view</button>
+              <button onClick={() => navigator.clipboard.writeText(`https://www.jil-logistics.com/driver/${job.ref}`)} style={{ flex: 1, padding: "8px", borderRadius: 9, border: `1px solid ${S.success}44`, background: S.success + "22", color: S.success, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>📋 Link șofer</button>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
 export default function App() {
-  const [view, setView] = useState("broker");
-  const [jobRef, setJobRef] = useState("GRT24042026");
-  const [setup, setSetup] = useState(false);
+  const [route, setRoute] = useState(getRouteFromURL());
 
-  return (
-    <div>
-      {setup ? <SetupView onCreate={(r) => { setJobRef(r); setSetup(false); }} /> : view === "broker" ? <BrokerView jobRef={jobRef} /> : <DriverView jobRef={jobRef} />}
-      <div style={{ position: "fixed", bottom: 16, left: "50%", transform: "translateX(-50%)", display: "flex", background: "rgba(6,14,28,0.97)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 50, padding: 4, gap: 4, zIndex: 999, backdropFilter: "blur(12px)" }}>
-        <button onClick={() => { setView("broker"); setSetup(false); }} style={{ padding: "8px 16px", borderRadius: 50, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700, background: view === "broker" && !setup ? S.blue : "transparent", color: view === "broker" && !setup ? "#fff" : S.gray }}>🧑‍💼 Andrei</button>
-        <button onClick={() => { setView("driver"); setSetup(false); }} style={{ padding: "8px 16px", borderRadius: 50, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700, background: view === "driver" && !setup ? S.success : "transparent", color: view === "driver" && !setup ? "#fff" : S.gray }}>🚗 Driver</button>
-        <button onClick={() => setSetup(true)} style={{ padding: "8px 16px", borderRadius: 50, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700, background: setup ? S.gold : "transparent", color: setup ? "#000" : S.gray }}>➕ Job</button>
-      </div>
-    </div>
-  );
+  useEffect(() => {
+    const handlePop = () => setRoute(getRouteFromURL());
+    window.addEventListener("popstate", handlePop);
+    return () => window.removeEventListener("popstate", handlePop);
+  }, []);
+
+  if (route.mode === "driver") return <DriverView jobRef={route.jobRef} />;
+  if (route.mode === "broker") return <BrokerView jobRef={route.jobRef} />;
+  return <HomeView />;
 }
